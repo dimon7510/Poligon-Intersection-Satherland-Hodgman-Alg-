@@ -1,0 +1,561 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+
+/* 
+ * File:   main.cpp
+ * Author: P302450
+ *
+ * Created on October 6, 2017, 4:50 PM
+ */
+
+ //g++  5.4.0
+
+#include <limits>
+#include <math.h>
+#include <stdlib.h>
+#include <list>
+#include <algorithm>
+#include <iostream>
+
+//Chunk of code with definition of structures  from Robert's program
+
+#define MAXIMUM_NUMBER_OF_POLYGONS 10
+#define MAXIMUM_NUMBER_OF_POINTS_PER_POLYGON 10
+#define MAXIMUM_NUMBER_OF_FAILURE_PLANES 5
+#define MAXIMUM_NUMBER_OF_POINTS_PER_FAILURE_PLANE 3
+#define MAXIMUM_NUMBER_OF_INTERSECTION_POINTS 20
+#define Accuracy 0.01 // accuracy for == or != of TpointF
+
+struct TPointF
+{
+double x;
+double y;
+bool operator==(TPointF Position)
+{
+/*
+if (fabs(x-Position.x)<=Accuracy && fabs(y-Position.y)<=Accuracy)
+// if (x == Position.x && y == Position.y)
+{return true;}
+else
+{return false;}
+*/
+double deltaX = x-Position.x;
+double deltaY = y-Position.y;
+// double distanceXY = sqrt(deltaX*deltaX+deltaY*deltaY);
+double distanceXY = sqrt(pow(deltaX,2.0)+pow(deltaY,2.0));
+if (distanceXY <= Accuracy)
+{
+return true;
+}
+else
+{
+return false;
+}
+}
+bool operator!=(TPointF Position)
+{
+/*
+if (fabs(x-Position.x)>Accuracy || fabs(y-Position.y)>Accuracy)
+// if (x != Position.x || y != Position.y)
+{return true;}
+else
+{return false;}
+*/
+double deltaX = x-Position.x;
+double deltaY = y-Position.y;
+// double distanceXY = sqrt(deltaX*deltaX+deltaY*deltaY);
+double distanceXY = sqrt(pow(deltaX,2.0)+pow(deltaY,2.0));
+if (distanceXY > Accuracy)
+{
+return true;
+}
+else
+{
+return false;
+}
+}
+};
+struct TPolygon
+{
+int numberOfPoints;
+TPointF points[MAXIMUM_NUMBER_OF_POINTS_PER_POLYGON];
+};
+struct TFailurePlane
+{
+int numberOfPoints;
+TPointF points[MAXIMUM_NUMBER_OF_POINTS_PER_FAILURE_PLANE];
+};
+//------------------------------------------------------------------------------------------------------------
+// Public variables and functions.
+//
+// The GUI will fill up the Input Variables and then pass control to TRegionsProcessor by calling the
+// ProcessData function. The ProcessData function will call all the routines necessary to process the
+// Input Variables and fill up the Output Variables. The GUI will then read these Output Variables and
+// display the output.
+//------------------------------------------------------------------------------------------------------------
+//------------------------------------------------------------------------------------------------------------
+// Input Variables
+//------------------------------------------------------------------------------------------------------------
+
+int numberOfPolygons;
+TPolygon polygons[MAXIMUM_NUMBER_OF_POLYGONS];
+int numberOfFailurePlanes;
+TFailurePlane failurePlanes[MAXIMUM_NUMBER_OF_FAILURE_PLANES];
+int useFailurePlane;
+//------------------------------------------------------------------------------------------------------------
+// Output Variables
+//------------------------------------------------------------------------------------------------------------
+int numberOfIntersectionPoints;
+TPointF intersectionPoints[MAXIMUM_NUMBER_OF_INTERSECTION_POINTS];
+//------------------------------------------------------------------------------------------------------------
+// Calculation Process Function
+//------------------------------------------------------------------------------------------------------------
+bool ProcessData();
+
+
+    //Node structure
+struct node {
+    double x;
+    double y;
+   };
+   
+   struct Poly {
+       std::list<node> polygon;
+   };
+
+//function "printNode" prints out node
+void printNode (node a)
+{
+    std::cout<<" ("<<a.x<<", "<<a.y<<") ";
+}
+
+//Function "printPolygon" prints nodes using "printNode function"
+void printPolygon (std::list<node> poly)
+{
+    if (poly.size()==0)
+        std::cout<<"No intersection\n";
+    else 
+    {
+        for_each (poly.begin(), poly.end(), printNode);
+        std::cout<<"\n";
+    }
+}
+
+//function distTwoPoints returns distance between two nodes
+double distTwoPoints (node A, node B)
+{
+    double dist = sqrt( (B.y-A.y)*(B.y-A.y) + (B.x-A.x)*(B.x-A.x) );
+    return dist;
+}
+
+//Function "RemoveDuplicateNodes" removes identical nodes in list next to each other
+void removeDuplicateNodes (std::list<node> & outputPoly)
+{
+    node start, end;   //start and end are two consequetive node to check for equality
+    start = outputPoly.back();
+    std::list<node>::iterator it = outputPoly.begin();
+    while (it != outputPoly.end())
+    {
+         end = *it;
+         if( distTwoPoints(start,end) < 1.0e-10 )
+         {it = outputPoly.erase (it);   //remove current element if previous was same
+         }
+         else 
+         {
+             start = *it;             //switch start element and increment iterator
+             ++it;
+         }
+    }
+}
+   
+//function distLinePoint calculates distance between 
+//line AB and point Z
+double distLinePoint (node A, node B, node Z )
+{
+    double S = fabs((B.y-A.y)*Z.x - (B.x-A.x)*Z.y + B.x*A.y - B.y*A.x);
+    double AB = sqrt( (B.y-A.y)*(B.y-A.y) + (B.x-A.x)*(B.x-A.x) );
+    if (AB==0)  AB = std::numeric_limits<float>::min();
+    return S/AB;
+}
+
+//function halfPlaneOrient returns -1 if point X is on left side of line AB
+//returns 0 if X belongs line AB and returns -1 if x is on right side of plane AB
+int halfPlaneOrient (node A, node B, node X)
+{
+    double orient = (X.x - A.x)*(B.y-A.y) - (X.y-A.y)*(B.x-A.x);
+    if (orient >0.0000001) return 1;
+        else if (orient < -0.0000001) return -1;
+        else return 0;
+}
+
+//Function "poligonWinding" returns polygon winding and checkes polygon for concavity
+//if polygon is not convex it exits with error message "not convex"
+//if polygon has collinear sides it exits with eror message
+//if poligon is convex it returns +1 if poligon is winded CounterClockwise
+//                        returns -1 if polygon is winded Clockwise
+int polygonWinding(std::list<node> poly)
+{
+    int halfPlaneSign = 0, halfPlaneSignNew = 0; //initial value of winding numbers
+    node startNode = poly.back();               //stastNode is beginning of current side of polygon - last node in polygon list
+    node endNode, nextNode;                    //endNode is end of current side of polygon, nextNode - next node after current side
+    
+    for (std::list<node>::iterator it=poly.begin(); it != poly.end(); ++it)
+    {
+        endNode = *it;
+
+        if ( std::next(it,1) == poly.end() ) nextNode = poly.front(); //if nextNode(node after current) is beyond last element in list - then nextNode is first element
+            else nextNode = *(std::next(it));
+        
+        halfPlaneSignNew = halfPlaneOrient( startNode, endNode, nextNode);  //calculating sign of current winding
+        
+        if (halfPlaneSignNew == 0 ) 
+            {std::cout<<"\n colinear nodes detecter - ERROR\n"; exit (EXIT_FAILURE); } // Collinear nodes detected
+         else if (halfPlaneSign*halfPlaneSignNew < 0)
+             {std::cout<<"\n Polygon is not convex - ERROR\n"; exit (EXIT_FAILURE); } // Non-convex polygon detected, product of two heighboring windings less than 0
+        
+        //winding (angles between neighbour sides) are same sign - switch to next side
+        halfPlaneSign = halfPlaneSignNew; 
+        startNode = endNode;            
+    }
+    return halfPlaneSign;    
+}
+
+//function computeIntersection returns node with coordinates of intersection 
+//between lines formed by side of convex polygon AB and line segment SE
+node computeIntersection (node A, node B, node S, node E)
+{
+    node intersect;
+    double det = (A.x-B.x)*(S.y-E.y) - (A.y-B.y)*(S.x-E.x);
+    double a = (A.x*B.y-A.y*B.x);
+    double b = (S.x*E.y-S.y*E.x);
+    
+    if (det==0.0)  //case of determinant equal 0 (line are almost parallel - very rear)
+    {
+        //std::cout << "determinant-zero case: "<<det<<"\n";
+        double d1 = distLinePoint(A,B,S);
+        double d2 = distLinePoint(A,B,E);
+        intersect.x = (d1*E.x + d2*S.x)/(d1+d2);   //intersect.x = (S.x+E.x)/2;         simly takes half distanse not very accurate
+        intersect.y = (d1*E.y + d2*S.y)/(d1+d2);   //intersect.y = (S.y+E.y)/2;
+    }
+    else {
+        intersect.x = (a*(S.x-E.x)- b*(A.x-B.x))/det;
+        intersect.y = (a*(S.y-E.y)- b*(A.y-B.y))/det;
+        //std::cout << "determinant - non-zero: "<<det<<"\n";
+    }
+    
+    return intersect;
+}
+
+//Function "PolygonClip" takes 3 arguments. 
+//convexPoly - is big convex polygon.
+//soilPoly - polygon representins soil levels
+//outoutPoly - emty polygon which will be modified by and returned with sequens of Nodes representing intersection of two polygons
+void polygonClip (std::list<node> & convexPoly, std::list<node> & soilPoly, std::list<node> & outputPoly)
+{
+    outputPoly.assign(soilPoly.begin(), soilPoly.end());    //assigning soil poligon to output
+    
+    node S, E;                     // declaring S and E are start and end points of each side of clipping "soilPoly" 
+    node startOfEdge = convexPoly.back();  //start point of edge of "convexPoly" polygon
+    node endOfEdge;                        //end point of edge of "convexPoly" polygon
+ 
+    std::list<node> inputList;            //input list for each step of algorithm
+    
+    int sOrient, eOrient;  // here orientations (winding) of points S and E according to edge of "convexPoly" will be stored
+    int winding = polygonWinding(convexPoly);    //winding of big "convexPoly"
+           
+    //this for loop goes through edges of big "convexPoly" polygon
+    for (std::list<node>::iterator it1=convexPoly.begin(); it1 != convexPoly.end(); ++it1)
+    {
+        endOfEdge = *it1;      //ending point of edge (for looping)
+        inputList = outputPoly;
+        outputPoly.clear();    //clearing output polygon list
+        S=inputList.back();    // last element of inputList is assigned to S - starting point
+               
+        //this for loop goes through nodes of inputList
+        for (std::list<node>::iterator it2=inputList.begin(); it2 != inputList.end(); ++it2)
+        {
+            E = *it2;                                                //end of tracing node
+            sOrient = halfPlaneOrient(startOfEdge, endOfEdge, S);    //orientation of point S
+            eOrient = halfPlaneOrient(startOfEdge, endOfEdge, E);    //orientation of point E
+            
+            if (eOrient == winding)                                 //if point E is inside convexPolygon halfplane
+            {
+                if (sOrient != winding)                            //if point S is outside convexPolygon halfplane
+                    { outputPoly.push_back( computeIntersection(startOfEdge, endOfEdge, S, E));}  //push  intersection in output
+                
+                outputPoly.push_back(E);                           // push E point in output
+            }
+            
+            else if (sOrient == winding)                      // if point S inside convexPolygon halfplane
+            {
+                outputPoly.push_back( computeIntersection(startOfEdge, endOfEdge, S, E)); //push intersection in output 
+            } 
+           
+            S=E;  
+        }
+        startOfEdge = endOfEdge;
+    }
+        //test print
+        //std::cout<<"\n with possible duplicate nodes";
+        //printPolygon(outputPoly);
+    
+    removeDuplicateNodes(outputPoly);
+    return;
+}
+
+//Functions to incorporate polygon program with GUI----------------
+//----------------------------------------------------------------
+//Function "assignPolygon" assigns Array coordinates to list
+void assignPolygon(std::list<node> & soilPolyList, TPolygon soilArray)
+{
+    for (int i=0; i<soilArray.numberOfPoints; i++)
+    {
+        node p;
+        p.x = soilArray.points[i].x;
+        p.y = soilArray.points[i].y;
+        soilPolyList.push_back(p);
+    }
+}
+
+//Function "highestY" returns highest coordinate Y from all soil polygons
+double highestY( TPolygon * polygons, int numberOfPolygons)
+{
+    double high = 0.0;
+    for (int i=0; i<numberOfPolygons; i++)
+    {
+        for (int j=0; j<polygons[i].numberOfPoints; j++)
+        {
+            if (polygons[i].points[j].y>high) high = polygons[i].points[j].y;
+        }
+    }
+    return high;
+}
+
+//function "leftMostX" returns leftmost (smallest) X coordinate of all soil polygons
+double leftMostX( TPolygon * polygons, int numberOfPolygons)
+{
+    double left = 1000000.0;
+    for (int i=0; i<numberOfPolygons; i++)
+    {
+        for (int j=0; j<polygons[i].numberOfPoints; j++)
+        {
+            if (polygons[i].points[j].x<left) left = polygons[i].points[j].x;
+        }
+    }
+    return left;
+}
+
+//Function "assignFailurePlanePolygon" makes convex polygon list from failurePlane array
+void assignFailurePlanePolygon(std::list<node> & soilPolyList, TFailurePlane failureArray, double highestY, double leftMostX)
+{
+     for (int i=0; i<failureArray.numberOfPoints; i++)
+    {
+        node p;
+        p.x = failureArray.points[i].x;
+        p.y = failureArray.points[i].y;
+        soilPolyList.push_back(p);       
+    }
+     //two additional points needed to make polygon from failure plane array
+        node add1, add2;
+        add1.x = failureArray.points[failureArray.numberOfPoints - 1].x;
+        add1.y = highestY+1;
+        add2.x = leftMostX-1; 
+        add2.y = highestY+1; 
+      //last two points are pushed depending on orientation of failure surface
+       if (failureArray.points[0].x<failureArray.points[failureArray.numberOfPoints - 1].x)
+            //Failure plane is oriented correctly - from left to right
+        {    
+            //if no picks above leftmost point of failure surface push only add2
+            if (highestY<=failureArray.points[failureArray.numberOfPoints - 1].y)
+                soilPolyList.push_back(add2);
+            else {//else push both points add1 and add2
+                 soilPolyList.push_back(add1);
+                  soilPolyList.push_back(add2);
+                }
+            
+        }
+            //else if plane is oriented from right to left
+        else 
+        {   //if no picks first point of failure plane push only add2
+            if (highestY<=failureArray.points[0].y)
+                soilPolyList.push_back(add2);
+            else {//else push both points first add2 then add1
+                 soilPolyList.push_back(add2);
+                  soilPolyList.push_back(add1);
+                }
+        }
+}
+
+//function "assignIntersectionPolygon" makes and returns TPolygon from list of intersections
+TPolygon assignItersectionPolygon (std::list<node> & intersectPolyList)
+{
+    TPolygon returnPolygon;
+    int size = intersectPolyList.size();
+    returnPolygon.numberOfPoints = size;
+    if (size>0)
+    {
+        int i=0;
+         for (std::list<node>::iterator it=intersectPolyList.begin(); it != intersectPolyList.end(); ++it)
+        {
+             returnPolygon.points[i].x = (*it).x;
+             returnPolygon.points[i].y = (*it).y;  
+             i++;
+        }    
+    }
+    return returnPolygon;
+}
+
+//function "polyArea" calculates area of polygon polygon is presented as an array
+double polyArea(TPolygon myTPolygon)
+{
+    double area = 0.0;
+    // Calculate value of shoelace formula
+    int j = myTPolygon.numberOfPoints-1;
+    for (int i = 0; i < myTPolygon.numberOfPoints; i++)
+    {
+        area += (myTPolygon.points[j].x + myTPolygon.points[i].x) * (myTPolygon.points[i].y - myTPolygon.points[j].y);
+        j = i;  // j is previous vertex to i
+    }
+    // Return absolute value
+    return abs(area / 2.0);
+}
+
+/*
+ * 
+ */
+
+int main(int argc, char** argv) {
+
+    //////////////////////////////////////////////////////////////////////////////////
+ //for testing purpose: inputs of 4 polygons and 2 failure planes (in type of TPolygons)    
+numberOfPolygons = 4;
+polygons[0].numberOfPoints = 3;
+polygons[0].points[0].x = 100.00; polygons[0].points[0].y = 110.00;
+polygons[0].points[1].x = 40.00; polygons[0].points[1].y = 95.00;
+polygons[0].points[2].x = 30.00; polygons[0].points[2].y = 45.00;
+polygons[1].numberOfPoints = 4;
+polygons[1].points[0].x = 30.00; polygons[1].points[0].y = 45.00;
+polygons[1].points[1].x = 31.00; polygons[1].points[1].y = 32.00;
+polygons[1].points[2].x = 75.00; polygons[1].points[2].y = 28.00;
+polygons[1].points[3].x = 80.00; polygons[1].points[3].y = 70.00;
+polygons[2].numberOfPoints = 3;
+polygons[2].points[0].x = 100.00; polygons[2].points[0].y = 110.00;
+polygons[2].points[1].x = 30.00; polygons[2].points[1].y = 45.00;
+polygons[2].points[2].x = 80.00; polygons[2].points[2].y = 70.00;
+polygons[3].numberOfPoints = 5;
+polygons[3].points[0].x = 100.00; polygons[3].points[0].y = 110.00;
+polygons[3].points[1].x = 80.00; polygons[3].points[1].y = 70.00;
+polygons[3].points[2].x = 75.00; polygons[3].points[2].y = 28.00;
+polygons[3].points[3].x = 130.00; polygons[3].points[3].y = 40.00;
+polygons[3].points[4].x = 125.00; polygons[3].points[4].y = 85.00;
+numberOfFailurePlanes = 2;
+failurePlanes[0].numberOfPoints = 2;
+failurePlanes[0].points[0].x = 25.00; failurePlanes[0].points[0].y = 35.00;
+failurePlanes[0].points[1].x = 145.00; failurePlanes[0].points[1].y = 80.00;
+failurePlanes[1].numberOfPoints = 3;
+failurePlanes[1].points[0].x = 25.00; failurePlanes[1].points[0].y = 35.00;
+failurePlanes[1].points[1].x = 65.00; failurePlanes[1].points[1].y = 55.00;
+failurePlanes[1].points[2].x = 75.00; failurePlanes[1].points[2].y = 110.00;
+useFailurePlane = 0;
+
+//Declaring Poly type arrays (inner structure - list) for clipping algorithm
+Poly mySoilPolygons [numberOfPolygons];             //array of lists of soil polygons
+Poly myFailurePlanePolygons [numberOfFailurePlanes];    //array of lists of failure plane polygons
+Poly myIntersections [numberOfFailurePlanes] [numberOfPolygons]; //table of lists of polygon intersections (of failure planes with soil polygons)
+TPolygon intersectionPolygons[numberOfFailurePlanes][numberOfPolygons]; //table of arrays of intersection for output
+//table of areas for intersections for output (first index number of planes, second index number of polygons)
+double areas [numberOfFailurePlanes] [numberOfPolygons];    
+numberOfIntersectionPoints=0;
+
+//assign soil polygon arrays to soil polygon lists
+for (int i=0; i<numberOfPolygons; i++)  
+{
+    assignPolygon(mySoilPolygons[i].polygon,polygons[i]);
+    std::cout << "\nThe soil polygon number " <<i<<" is: ";
+    printPolygon(mySoilPolygons[i].polygon);
+}
+
+//Calculating additional point needed for creating polygons from Failure Plane points
+double yHigh = highestY(polygons, numberOfPolygons);//calculating biggest y coordinate among all coordinates of soil polygons
+double xLeft = leftMostX(polygons, numberOfPolygons);//calculatin smallest (leftMost) x coordinate among all coordinates of soil polygons
+std::cout << "\nThe highest Y among polygon coordinates " <<yHigh<<" The leftmost X among polygon coordinates "<<xLeft;
+
+//assign failure plane arrays to failure plane polygon lists
+for (int i=0; i<numberOfFailurePlanes; i++)  
+{
+    assignFailurePlanePolygon(myFailurePlanePolygons[i].polygon, failurePlanes[i], yHigh, xLeft);
+    std::cout << "\nThe failure plane  polygon number " <<i<<" is: ";
+    printPolygon(myFailurePlanePolygons[i].polygon);
+}
+
+//calculating and printing out intersection polygon points
+//also assigning intersection lists to Intersection array table for GUI output
+for (int i=0; i<numberOfFailurePlanes; i++)  //calculating and printing out intersection points
+{
+    //printing out failure plane
+    std::cout << "\n------------------------------\n";
+    std::cout << "\nThe intersections for failure plane\n " <<i+1;
+    printPolygon(myFailurePlanePolygons[i].polygon);
+    std::cout << "\n------------------------------\n";
+    
+    for (int j=0; j<numberOfPolygons; j++)
+    {   //calculating intersection polygon
+        polygonClip(myFailurePlanePolygons[i].polygon, mySoilPolygons[j].polygon, myIntersections[i][j].polygon);
+        //printing out siol polygon
+        std::cout << "\nThe SoilPolygon " <<j+1<<"\n";
+        printPolygon(mySoilPolygons[j].polygon);
+        //printing out intersection polygon
+        std::cout << "\nThe intersection polygon \n";
+        printPolygon(myIntersections[i][j].polygon);  
+        //assigning polygon lists to polygon arrays for GUI output
+        intersectionPolygons [i][j] = assignItersectionPolygon(myIntersections[i][j].polygon);
+    }  
+}
+
+//Calculating areas of intersection polygons
+for (int i=0; i<numberOfFailurePlanes; i++)  
+{  
+    for (int j=0; j<numberOfPolygons; j++)
+    {
+       areas[i][j] = polyArea(intersectionPolygons [i][j]);
+        std::cout << "\nThe intersection area: Failure plane: "<<i<<" Polygon soil: "<<j<<"\n";
+        std::cout << "Number of intersections: "<<intersectionPolygons[i][j].numberOfPoints<<" Area: "<<areas[i][j]<<"\n";
+        printPolygon(myIntersections[i][j].polygon);  
+    }
+}
+
+//calculating total amount of intersection points and assigning to one array "intersectionPoints" 
+//(needs to modified GUI for showing separate intersections)
+int index=0; //index for intersectionPoint array
+for (int i=0; i<numberOfFailurePlanes; i++) 
+{
+    //for test output
+    std::cout << "\nThe intersection plane  "<<i<<"\n";
+    for (int j=0; j<numberOfPolygons; j++)
+    {   
+        std::cout << "\nThe intersection with polygon "<<j;//for test
+        
+        for(int k=0; k<intersectionPolygons[i][j].numberOfPoints;k++ )
+        {
+            intersectionPoints[index].x = intersectionPolygons[i][j].points[k].x;
+            intersectionPoints[index].y = intersectionPolygons[i][j].points[k].y;
+            index++;
+            std::cout << "("<<intersectionPolygons[i][j].points[k].x<<","<<intersectionPolygons[i][j].points[k].y<<")";//for test
+        }  
+        numberOfIntersectionPoints+=myIntersections[i][j].polygon.size();
+    }  
+}
+
+//for test - printout of all intersection points
+std::cout << "\nTotal amount of intersections = "<<numberOfIntersectionPoints<<" \n"<<"all intersections:\n";
+for (int i=0; i<numberOfIntersectionPoints; i++)
+{
+    std::cout<<"("<<intersectionPoints[i].x<<","<<intersectionPoints[i].y<<")";
+}
+
+    return 0;
+}
+
